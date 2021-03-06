@@ -1,0 +1,26 @@
+[package]
+name = "firmware"
+version = "0.1.0"
+authors = ["Antoni Simka <antonisimka.8@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+panic-halt = "0.2.0"
+stm32f0xx-hal = { version = "0.17.1", features = ["stm32f042", "rt", "stm32-usbd"] }
+cortex-m = "0.7.1"
+cortex-m-rt = { version = "0.6.13", features = ["device"] }
+cortex-m-rtic = "0.5.5"
+usb-device = "0.2.7"
+generic-array = "0.14"
+embedded-hal = "0.2.4"
+nb = "1.0.0"
+usbd-serial = "0.1.1"
+
+[dependencies.keyberon]
+git = "https://github.com/TeXitoi/keyberon.git"
+
+[profile.release]
+lto = true
+incremental = false
+opt-level = "z"
+debug = true
