@@ -14,7 +14,6 @@ usb-device = "0.2.7"
 generic-array = "0.14"
 embedded-hal = "0.2.4"
 nb = "1.0.0"
-usbd-serial = "0.1.1"
 
 [dependencies.keyberon]
 git = "https://github.com/TeXitoi/keyberon.git"

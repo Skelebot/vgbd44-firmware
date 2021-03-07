@@ -4,19 +4,18 @@
 mod layout;
 
 use panic_halt as _;
-use stm32f0xx_hal as hal;
-
 use rtic::app;
 
-use generic_array::{GenericArray, typenum::{U4, U6}};
-use hal::{pac::TIM3, prelude::*, usb::UsbBusType};
+use hal::{prelude::*, usb};
+use stm32f0xx_hal as hal;
+
+use generic_array::typenum::{U4, U6};
 use keyberon::{
     debounce::Debouncer,
     key_code::KbHidReport,
     layout::{Event, Layout},
     matrix::{Matrix, PressedKeys},
 };
-use nb::block;
 use usb_device::{
     class_prelude::UsbBusAllocator,
     device::{UsbDevice, UsbDeviceState},
@@ -25,21 +24,25 @@ use usb_device::{
 #[app(device = crate::hal::pac, peripherals = true)]
 const APP: () = {
     struct Resources {
-        usb_dev: UsbDevice<'static, UsbBusType>,
-        // TODO: LEDs
-        usb_class: keyberon::Class<'static, UsbBusType, ()>,
+        usb_dev: UsbDevice<'static, usb::UsbBusType>,
+        usb_class: keyberon::Class<'static, usb::UsbBusType, ()>,
         matrix: Matrix<layout::Cols, layout::Rows>,
-        debouncer: Debouncer<PressedKeys<U4, U6>>,
         layout: Layout,
-        timer: hal::timers::Timer<TIM3>,
+        debouncer: Debouncer<PressedKeys<U4, U6>>,
         transform: fn(Event) -> Event,
+        boot_btn: (
+            hal::gpio::gpiob::PB8<hal::gpio::Input<hal::gpio::Floating>>,
+            bool,
+        ),
+        timer: hal::timers::Timer<hal::pac::TIM3>,
         tx: hal::serial::Tx<hal::pac::USART1>,
         rx: hal::serial::Rx<hal::pac::USART1>,
+        is_main_half: bool,
     }
 
     #[init]
     fn init(mut c: init::Context) -> init::LateResources {
-        static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
+        static mut USB_BUS: Option<UsbBusAllocator<usb::UsbBusType>> = None;
 
         stm32f0xx_hal::usb::remap_pins(&mut c.device.RCC, &mut c.device.SYSCFG);
 
@@ -62,7 +65,7 @@ const APP: () = {
             pin_dp: gpioa.pa12,
         };
 
-        *USB_BUS = Some(UsbBusType::new(usb));
+        *USB_BUS = Some(usb::UsbBusType::new(usb));
         let usb_bus = USB_BUS.as_ref().unwrap();
         let usb_class = keyberon::new_class(usb_bus, ());
         let usb_dev = keyberon::new_device(usb_bus);
@@ -79,19 +82,22 @@ const APP: () = {
             }
         };
 
-        // Set up TX (PA9), RX (PA10)
-        let (pa9, pa10) = (gpioa.pa9, gpioa.pa10);
-        let pins = cortex_m::interrupt::free(|cs| {
-            (pa9.into_alternate_af1(cs), pa10.into_alternate_af1(cs))
-        });
+        let (tx, rx) = {
+            // Set up TX (PA9), RX (PA10)
+            let (pa9, pa10) = (gpioa.pa9, gpioa.pa10);
+            let pins = cortex_m::interrupt::free(|cs| {
+                (pa9.into_alternate_af1(cs), pa10.into_alternate_af1(cs))
+            });
 
-        // TODO: GO FASTER
-        let mut serial = hal::serial::Serial::usart1(c.device.USART1, pins, 38_400.bps(), &mut rcc);
-        serial.listen(hal::serial::Event::Rxne);
-        let (tx, rx) = serial.split();
+            let mut serial =
+                hal::serial::Serial::usart1(c.device.USART1, pins, 38_400.bps(), &mut rcc);
+            serial.listen(hal::serial::Event::Rxne);
+            serial.split()
+        };
 
-        let (pa0, pa1, pa2, pa3, pa4, pa5) = (
-            gpioa.pa0, gpioa.pa1, gpioa.pa2, gpioa.pa3, gpioa.pa4, gpioa.pa5,
+        let (pa0, pa1, pa2, pa3, pa4, pa5, pb4, pb5, pb6, pb7) = (
+            gpioa.pa0, gpioa.pa1, gpioa.pa2, gpioa.pa3, gpioa.pa4, gpioa.pa5, gpiob.pb4, gpiob.pb5,
+            gpiob.pb6, gpiob.pb7,
         );
         let matrix = cortex_m::interrupt::free(move |cs| {
             Matrix::new(
@@ -104,33 +110,31 @@ const APP: () = {
                     pa5.into_pull_up_input(cs),
                 ),
                 layout::Rows(
-                    gpiob.pb4.into_push_pull_output(cs),
-                    gpiob.pb5.into_push_pull_output(cs),
-                    gpiob.pb6.into_push_pull_output(cs),
-                    gpiob.pb7.into_push_pull_output(cs),
+                    pb4.into_push_pull_output(cs),
+                    pb5.into_push_pull_output(cs),
+                    pb6.into_push_pull_output(cs),
+                    pb7.into_push_pull_output(cs),
                 ),
             )
-        });
-
-        // ????????????
-        let arr: GenericArray<GenericArray<bool, U6>, U4> = [[false; 6].into(); 4].into();
-        let debouncer = Debouncer::new(PressedKeys(arr), PressedKeys(arr), 5);
+        })
+        .unwrap();
 
         init::LateResources {
             usb_dev,
             usb_class,
-            timer,
-            // TODO: GO FASTER
-            debouncer,
-            matrix: matrix.unwrap(),
+            debouncer: Debouncer::new(Default::default(), Default::default(), 5),
+            matrix,
             layout: Layout::new(layout::LAYERS),
+            boot_btn: (gpiob.pb8, false),
             transform,
+            timer,
             tx,
             rx,
+            is_main_half: false,
         }
     }
 
-    #[task(binds = USART1, priority = 5, spawn = [handle_event], resources = [rx])]
+    #[task(binds = USART1, priority = 5, resources = [rx, layout])]
     fn rx(c: rx::Context) {
         static mut BUF: [u8; 3] = [0; 3];
 
@@ -140,62 +144,72 @@ const APP: () = {
 
             if b == 0xff {
                 if let Ok(event) = de(&BUF[..]) {
-                    c.spawn.handle_event(Some(event)).unwrap();
+                    c.resources.layout.event(event);
                 }
             }
         }
     }
 
-    #[task(binds = USB, priority = 4, resources = [usb_dev, usb_class])]
+    #[task(binds = USB, priority = 4, resources = [usb_dev, usb_class, is_main_half])]
     fn usb_rx(c: usb_rx::Context) {
         if c.resources.usb_dev.poll(&mut [c.resources.usb_class]) {
             use usb_device::class::UsbClass as _;
             c.resources.usb_class.poll();
         }
-    }
-
-    #[task(priority = 3, capacity = 8, resources = [usb_dev, usb_class, layout])]
-    fn handle_event(mut c: handle_event::Context, event: Option<Event>) {
-        match event {
-            None => c.resources.layout.tick(),
-            Some(e) => {c.resources.layout.event(e); return},
-        };
-
-        if c.resources.usb_dev.lock(|d| d.state()) != UsbDeviceState::Configured {
-            return;
-        }
-        
-        let report: KbHidReport = c.resources.layout.keycodes().collect();
-
-        if c.resources
-            .usb_class
-            .lock(|k| k.device_mut().set_keyboard_report(report.clone()))
-        {
-            while let Ok(0) = c.resources.usb_class.lock(|k| k.write(report.as_bytes())) {}
+        if !*c.resources.is_main_half && c.resources.usb_dev.state() == UsbDeviceState::Configured {
+            *c.resources.is_main_half = true;
         }
     }
 
-    #[task(binds = TIM3, priority = 2, spawn  = [handle_event], resources = [matrix, debouncer, timer, &transform, tx])]
-    fn tick(c: tick::Context) {
+    #[task(binds = TIM3, priority = 3, resources = [matrix, debouncer, timer, &transform, tx, is_main_half, layout, usb_class, boot_btn])]
+    fn tick(mut c: tick::Context) {
         // Clear the interrupt flag
         c.resources.timer.wait().ok();
 
-        // TODO: Write multiple events in a single report (?)
+        let is_main: bool = c.resources.is_main_half.lock(|c| *c);
+
         for event in c
             .resources
             .debouncer
             .events(c.resources.matrix.get().unwrap())
             .map(c.resources.transform)
         {
-            for &b in &ser(event) {
-                // TODO: Don't write USART if we are the main half
-                block!(c.resources.tx.write(b)).unwrap();
+            // Send events to the main half through USART
+            if !is_main {
+                for &b in &ser(event) {
+                    nb::block!(c.resources.tx.write(b)).unwrap();
+                }
             }
-            // TODO: Write USB only if we are the main half
-            c.spawn.handle_event(Some(event)).unwrap();
+            c.resources.layout.lock(|c| c.event(event));
         }
-        //c.spawn.handle_event(Some(Event::Press(2, 2))).unwrap();
-        c.spawn.handle_event(None).unwrap();
+
+        // Handle the BOOT button
+        {
+            let now = c.resources.boot_btn.0.is_high().unwrap();
+            let prev = c.resources.boot_btn.1;
+            let event: Option<Event> = match (now, prev) {
+                (true, false) => Some((c.resources.transform)(Event::Press(3, 0))),
+                (false, true) => Some((c.resources.transform)(Event::Release(3, 0))),
+                _ => None,
+            };
+            if let Some(e) = event {
+                c.resources.layout.lock(|l| l.event(e));
+                c.resources.boot_btn.1 = now;
+            }
+        }
+
+        c.resources.layout.lock(|c| c.tick());
+
+        // Send the USB report
+        if is_main {
+            let report: KbHidReport = c.resources.layout.lock(|c| c.keycodes().collect());
+            if c.resources
+                .usb_class
+                .lock(|c| c.device_mut().set_keyboard_report(report.clone()))
+            {
+                while let Ok(0) = c.resources.usb_class.lock(|c| c.write(report.as_bytes())) {}
+            }
+        }
     }
 
     extern "C" {
@@ -203,9 +217,11 @@ const APP: () = {
     }
 };
 
+// If the most significant bit of i is set, it's a press event
+
 fn ser(e: Event) -> [u8; 3] {
     match e {
-        Event::Press(i, j) => [i & 0x80, j, 0xff],
+        Event::Press(i, j) => [i | 0x80, j, 0xff],
         Event::Release(i, j) => [i, j, 0xff],
     }
 }
@@ -214,26 +230,11 @@ fn de(bytes: &[u8]) -> Result<Event, ()> {
     match *bytes {
         [i, j, 0xff] => {
             if (i & 0x80) != 0 {
-                Ok(Event::Press(i | 0x7f, j))
+                Ok(Event::Press(i & 0x7f, j))
             } else {
-                Ok(Event::Release(i | 0x7f, j))
+                Ok(Event::Release(i & 0x7f, j))
             }
         }
         _ => Err(()),
     }
-}
-
-fn send_report(
-    iter: impl Iterator<Item = keyberon::key_code::KeyCode>,
-    usb_dev: &mut UsbDevice<'static, hal::usb::UsbBusType>,
-    usb_class: &mut keyberon::Class<'static, hal::usb::UsbBusType, ()>,
-) {
-    let report: KbHidReport = iter.collect();
-    if !usb_class.device_mut().set_keyboard_report(report.clone()) {
-        return;
-    }
-    if usb_dev.state() != UsbDeviceState::Configured {
-        return;
-    }
-    while let Ok(0) = usb_class.write(report.as_bytes()) {}
 }
