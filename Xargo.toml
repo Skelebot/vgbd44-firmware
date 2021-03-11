@@ -1,0 +1,10 @@
+[dependencies]
+
+[dependencies.core]
+default-features = false
+features = ["panic_immediate_abort"]
+stage = 0
+
+[dependencies.compiler_builtins]
+features = ["mem"]
+stage = 1

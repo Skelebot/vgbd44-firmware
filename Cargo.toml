@@ -19,7 +19,8 @@ nb = "1.0.0"
 git = "https://github.com/TeXitoi/keyberon.git"
 
 [profile.release]
-lto = true
-incremental = false
 opt-level = "z"
-debug = true
+lto = true
+codegen-units = 1
+incremental = false
+debug = false
