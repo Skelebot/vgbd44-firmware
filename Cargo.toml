@@ -7,16 +7,17 @@ edition = "2018"
 [dependencies]
 panic-halt = "0.2.0"
 stm32f0xx-hal = { version = "0.17.1", features = ["stm32f042", "rt", "stm32-usbd"] }
-cortex-m = "0.7.1"
-cortex-m-rt = { version = "0.6.13", features = ["device"] }
-cortex-m-rtic = "0.5.5"
-usb-device = "0.2.7"
-generic-array = "0.14"
-embedded-hal = "0.2.4"
+cortex-m = "0.7.2"
+cortex-m-rt = { version = "0.6.14", features = ["device"] }
+cortex-m-rtic = "0.5.6"
+usb-device = "0.2.8"
+generic-array = "0.14.4"
+embedded-hal = "0.2.5"
 nb = "1.0.0"
 
-[dependencies.keyberon]
-git = "https://github.com/TeXitoi/keyberon.git"
+keyberon = { path = "./keyberon" }
+ws2812-timer-delay = { version = "0.3.0", features = ["slow"] }
+smart-leds = "0.3.0"
 
 [profile.release]
 opt-level = "z"
@@ -24,3 +25,7 @@ lto = true
 codegen-units = 1
 incremental = false
 debug = false
+
+[features]
+leds = []
+dvorak = []
