@@ -3,9 +3,6 @@
 
 mod layout;
 
-//#[cfg(feature = "leds")]
-mod leds;
-
 use panic_halt as _;
 use rtic::app;
 
@@ -24,15 +21,13 @@ use usb_device::{
     device::{UsbDevice, UsbDeviceState},
 };
 
-use crate::layout::CustomActions;
-
 #[app(device = crate::hal::pac, peripherals = true)]
 const APP: () = {
     struct Resources {
         usb_dev: UsbDevice<'static, hal::usb::UsbBusType>,
         usb_class: keyberon::Class<'static, hal::usb::UsbBusType, ()>,
         matrix: Matrix<layout::Cols, layout::Rows>,
-        layout: Layout<CustomActions>,
+        layout: Layout,
         debouncer: Debouncer<PressedKeys<U4, U6>>,
         transform: fn(Event) -> Event,
         boot_btn: (
@@ -43,8 +38,6 @@ const APP: () = {
         tx: hal::serial::Tx<hal::pac::USART1>,
         rx: hal::serial::Rx<hal::pac::USART1>,
         is_main_half: bool,
-        #[cfg(feature = "leds")]
-        leds: leds::Leds,
     }
 
     #[init]
@@ -66,16 +59,6 @@ const APP: () = {
         let gpioa = c.device.GPIOA.split(&mut rcc);
         let gpiob = c.device.GPIOB.split(&mut rcc);
 
-        // Setup LEDs
-        #[cfg(feature = "leds")]
-        let pa15 = gpioa.pa15;
-        #[cfg(feature = "leds")]
-        let leds = {
-            let ws_data = cortex_m::interrupt::free(|cs| pa15.into_push_pull_output(cs));
-            let ws_timer = hal::timers::Timer::tim2(c.device.TIM2, 3.mhz(), &mut rcc);
-            leds::Leds::new(ws_timer, ws_data)
-        };
-
         let usb = hal::usb::Peripheral {
             usb: c.device.USB,
             pin_dm: gpioa.pa11,
@@ -86,7 +69,7 @@ const APP: () = {
         let usb_bus = USB_BUS.as_ref().unwrap();
         let usb_class = keyberon::new_class(usb_bus, ());
         let usb_dev = usb_device::device::UsbDeviceBuilder::new(
-            &usb_bus,
+            usb_bus,
             usb_device::device::UsbVidPid(0x16c0, 0xcafe),
         )
         .manufacturer("HoldIT")
@@ -149,15 +132,13 @@ const APP: () = {
             usb_class,
             debouncer: Debouncer::new(Default::default(), Default::default(), 5),
             matrix,
-            layout: Layout::<CustomActions>::new(layout::qwerty::LAYERS),
+            layout: Layout::new(layout::qwerty::LAYERS),
             boot_btn: (gpiob.pb8, false),
             transform,
             timer,
             tx,
             rx,
             is_main_half: false,
-            #[cfg(feature = "leds")]
-            leds,
         }
     }
 
@@ -188,18 +169,13 @@ const APP: () = {
         }
     }
 
-    #[task(binds = TIM3, priority = 3, resources = [matrix, debouncer, timer, &transform, tx, is_main_half, layout, usb_class, boot_btn, leds])]
-    //#[task(binds = TIM3, priority = 3, resources = [matrix, debouncer, timer, &transform, tx, is_main_half, layout, usb_class, boot_btn])]
+    #[task(binds = TIM3, priority = 3, resources = [matrix, debouncer, timer, &transform, tx, is_main_half, layout, usb_class, boot_btn])]
     fn tick(mut c: tick::Context) {
         // Clear the interrupt flag
         c.resources.timer.wait().ok();
 
-        #[cfg(feature = "leds")]
-        c.resources.leds.step();
-        //c.resources.leds.white();
-
         let is_main: bool = c.resources.is_main_half.lock(|c| *c);
-
+        
         for event in c
             .resources
             .debouncer
@@ -227,24 +203,6 @@ const APP: () = {
             if let Some(e) = event {
                 c.resources.layout.lock(|l| l.event(e));
                 c.resources.boot_btn.1 = now;
-            }
-        }
-
-        {
-            use keyberon::layout::CustomEvent::*;
-            match c.resources.layout.lock(|c| c.tick()) {
-                #[cfg(feature = "leds")]
-                Press(CustomActions::LedsOff) => c.resources.leds.turn_off(),
-                #[cfg(feature = "leds")]
-                Press(CustomActions::LedsOn) => c.resources.leds.turn_on(),
-                #[cfg(feature = "leds")]
-                Press(CustomActions::LedsWhite) => c.resources.leds.solid(0x40, 0x40, 0x40),
-                #[cfg(feature = "leds")]
-                Press(CustomActions::LedsSolid) => c.resources.leds.solid(0x00, 0x50, 0x10),
-                Press(CustomActions::Dummy) => {
-                    c.resources.layout.lock(|l| l.event(Event::Press(1, 1)))
-                }
-                _ => (),
             }
         }
 

@@ -15,9 +15,14 @@ generic-array = "0.14.4"
 embedded-hal = "0.2.5"
 nb = "1.0.0"
 
-keyberon = { path = "./keyberon" }
+#keyberon = { path = "./keyberon" }
+keyberon = { git = "https://github.com/TeXitoi/keyberon.git" }
 ws2812-timer-delay = { version = "0.3.0", features = ["slow"] }
 smart-leds = "0.3.0"
+
+[profile.dev]
+opt-level = "z"
+lto = true
 
 [profile.release]
 opt-level = "z"

@@ -1,4 +1,4 @@
-pub mod dvorak;
+//pub mod dvorak;
 pub mod qwerty;
 
 use keyberon::action::HoldTapConfig;

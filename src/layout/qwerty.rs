@@ -3,13 +3,7 @@ use keyberon::key_code::KeyCode::*;
 
 use super::*;
 
-macro_rules! c {
-    ($var:ident) => {
-        Action::Custom(CustomActions::$var)
-    };
-}
-
-static S_ENTER: Action<CustomActions> = Action::HoldTap {
+static S_ENTER: Action = Action::HoldTap {
     timeout: 280,
     hold: &Action::KeyCode(RShift),
     tap: &Action::KeyCode(Enter),
@@ -17,12 +11,12 @@ static S_ENTER: Action<CustomActions> = Action::HoldTap {
     tap_hold_interval: 0,
 };
 
-pub static LAYERS: &[&[&[Action<CustomActions>]]] = keyberon::layout::layout! {
+pub static LAYERS: &[&[&[Action]]] = keyberon::layout::layout! {
     {
         [ Tab    Q W E R T   Y U I O P BSpace ]
         [ LCtrl  A S D F G   H J K L ; Quote  ]
         [ LShift Z X C V B   N M , . / Escape ]
-        [ {Action::DefaultLayer(4)} n LGui (1) Space Escape   BSpace {S_ENTER} (2) RAlt n {Action::DefaultLayer(4)} ]
+        [ {Action::DefaultLayer(3)} n LGui (1) Space Escape   BSpace {S_ENTER} (2) RAlt n {Action::DefaultLayer(3)} ]
     }
     {
         [ Tab    1 2 3 4 5   6 7 8 9 0 BSpace ]
@@ -33,8 +27,7 @@ pub static LAYERS: &[&[&[Action<CustomActions>]]] = keyberon::layout::layout! {
     {
         [ Tab    ! @ # $ %   ^ & * '(' ')' t ]
         [ LCtrl  n n n n n   - = '{' '}' '\\' '`' ]
-        [ LShift n {c!(LedsSolid)} {c!(LedsWhite)} {c!(LedsOn)} {c!(LedsOff)}   '_' + '[' ']' | ~    ]
-        //[ LShift n n n n n   '_' + '[' ']' | ~    ]
+        [ LShift n n n n n   '_' + '[' ']' | ~    ]
         [ n n t t t t   t t (1) t n n ]
     }
     {
