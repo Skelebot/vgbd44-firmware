@@ -1,8 +1,6 @@
 use keyberon::action::{Action, HoldTapConfig};
 use keyberon::key_code::KeyCode::*;
 
-use super::*;
-
 static S_ENTER: Action = Action::HoldTap {
     timeout: 280,
     hold: &Action::KeyCode(RShift),

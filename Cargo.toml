@@ -11,14 +11,13 @@ cortex-m = "0.7.2"
 cortex-m-rt = { version = "0.6.14", features = ["device"] }
 cortex-m-rtic = "0.5.6"
 usb-device = "0.2.8"
-generic-array = "0.14.4"
+#generic-array = "0.14.4"
 embedded-hal = "0.2.5"
 nb = "1.0.0"
 
-#keyberon = { path = "./keyberon" }
-keyberon = { git = "https://github.com/TeXitoi/keyberon.git" }
-ws2812-timer-delay = { version = "0.3.0", features = ["slow"] }
-smart-leds = "0.3.0"
+keyberon = { path = "./keyberon" }
+#ws2812-timer-delay = { version = "0.3.0", features = ["slow"] }
+#smart-leds = "0.3.0"
 
 [profile.dev]
 opt-level = "z"

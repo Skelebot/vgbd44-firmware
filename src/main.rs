@@ -6,10 +6,9 @@ mod layout;
 use panic_halt as _;
 use rtic::app;
 
-use hal::prelude::*;
+use hal::{gpio::{self, Input, Output, PullUp, PushPull}, prelude::*};
 use stm32f0xx_hal as hal;
 
-use generic_array::typenum::{U4, U6};
 use keyberon::{
     debounce::Debouncer,
     key_code::KbHidReport,
@@ -26,9 +25,9 @@ const APP: () = {
     struct Resources {
         usb_dev: UsbDevice<'static, hal::usb::UsbBusType>,
         usb_class: keyberon::Class<'static, hal::usb::UsbBusType, ()>,
-        matrix: Matrix<layout::Cols, layout::Rows>,
+        matrix: Matrix<gpio::Pin<Input<PullUp>>, gpio::Pin<Output<PushPull>>, 6, 4>,
         layout: Layout,
-        debouncer: Debouncer<PressedKeys<U4, U6>>,
+        debouncer: Debouncer<PressedKeys<6, 4>>,
         transform: fn(Event) -> Event,
         boot_btn: (
             hal::gpio::gpiob::PB8<hal::gpio::Input<hal::gpio::Floating>>,
@@ -109,20 +108,20 @@ const APP: () = {
         );
         let matrix = cortex_m::interrupt::free(move |cs| {
             Matrix::new(
-                layout::Cols(
-                    pa0.into_pull_up_input(cs),
-                    pa1.into_pull_up_input(cs),
-                    pa2.into_pull_up_input(cs),
-                    pa3.into_pull_up_input(cs),
-                    pa4.into_pull_up_input(cs),
-                    pa5.into_pull_up_input(cs),
-                ),
-                layout::Rows(
-                    pb4.into_push_pull_output(cs),
-                    pb5.into_push_pull_output(cs),
-                    pb6.into_push_pull_output(cs),
-                    pb7.into_push_pull_output(cs),
-                ),
+                [
+                    pa0.into_pull_up_input(cs).downgrade(),
+                    pa1.into_pull_up_input(cs).downgrade(),
+                    pa2.into_pull_up_input(cs).downgrade(),
+                    pa3.into_pull_up_input(cs).downgrade(),
+                    pa4.into_pull_up_input(cs).downgrade(),
+                    pa5.into_pull_up_input(cs).downgrade(),
+                ],
+                [
+                    pb4.into_push_pull_output(cs).downgrade(),
+                    pb5.into_push_pull_output(cs).downgrade(),
+                    pb6.into_push_pull_output(cs).downgrade(),
+                    pb7.into_push_pull_output(cs).downgrade(),
+                ],
             )
         })
         .unwrap();
@@ -174,6 +173,7 @@ const APP: () = {
         // Clear the interrupt flag
         c.resources.timer.wait().ok();
 
+        c.resources.layout.lock(|l| l.tick());
         let is_main: bool = c.resources.is_main_half.lock(|c| *c);
         
         for event in c
