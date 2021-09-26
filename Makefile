@@ -4,7 +4,7 @@ BIN_NAME=firmware
 all: build objcopy flash
 
 build:
-	xargo build --release #--features=leds
+	xargo build --release
 
 objcopy:
 	arm-none-eabi-objcopy -O binary $(TARGET_DIR)/$(BIN_NAME) $(TARGET_DIR)/$(BIN_NAME).bin

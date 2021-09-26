@@ -1,18 +1,13 @@
-//pub mod dvorak;
+use keyberon::action::{Action, HoldTapConfig};
+use keyberon::key_code::KeyCode;
+
+pub mod dvorak;
 pub mod qwerty;
 
-use keyberon::action::HoldTapConfig;
-use keyberon::key_code::KeyCode::*;
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum CustomActions {
-    #[cfg(feature = "leds")]
-    LedsOff,
-    #[cfg(feature = "leds")]
-    LedsOn,
-    #[cfg(feature = "leds")]
-    LedsWhite,
-    #[cfg(feature = "leds")]
-    LedsSolid,
-    Dummy,
-}
+const S_ENTER: Action<!> = Action::HoldTap {
+    timeout: 280,
+    hold: &Action::KeyCode(KeyCode::RShift),
+    tap: &Action::KeyCode(KeyCode::Enter),
+    config: HoldTapConfig::PermissiveHold,
+    tap_hold_interval: 0,
+};

@@ -1,15 +1,7 @@
+#![allow(dead_code)]
 use super::*;
-use keyberon::action::Action;
 
-static S_ENTER: Action = Action::HoldTap {
-    timeout: 280,
-    hold: &Action::KeyCode(RShift),
-    tap: &Action::KeyCode(Enter),
-    config: HoldTapConfig::PermissiveHold,
-    tap_hold_interval: 0,
-};
-
-pub static LAYERS: keyberon::layout::Layers = keyberon::layout::layout! {
+pub static LAYERS: keyberon::layout::Layers<!, 12, 4, 4> = keyberon::layout::layout! {
     // Dvorak
     {
         [ Tab '\'' , . P Y    F G C R L BSpace ]
@@ -36,38 +28,3 @@ pub static LAYERS: keyberon::layout::Layers = keyberon::layout::layout! {
         [ n n LGui t t t   t t (1) RAlt n n ]
     }
 };
-
-use core::convert::Infallible;
-use embedded_hal::digital::v2::{InputPin, OutputPin};
-use generic_array::typenum::{U4, U6};
-use stm32f0xx_hal::gpio::{gpioa, gpiob, Input, Output, PullUp, PushPull};
-
-pub struct Cols(
-    pub gpioa::PA0<Input<PullUp>>,
-    pub gpioa::PA1<Input<PullUp>>,
-    pub gpioa::PA2<Input<PullUp>>,
-    pub gpioa::PA3<Input<PullUp>>,
-    pub gpioa::PA4<Input<PullUp>>,
-    pub gpioa::PA5<Input<PullUp>>,
-);
-
-keyberon::impl_heterogenous_array! {
-    Cols,
-    dyn InputPin<Error = Infallible>,
-    U6,
-    [0, 1, 2, 3, 4, 5]
-}
-
-pub struct Rows(
-    pub gpiob::PB4<Output<PushPull>>,
-    pub gpiob::PB5<Output<PushPull>>,
-    pub gpiob::PB6<Output<PushPull>>,
-    pub gpiob::PB7<Output<PushPull>>,
-);
-
-keyberon::impl_heterogenous_array! {
-    Rows,
-    dyn OutputPin<Error = Infallible>,
-    U4,
-    [0, 1, 2, 3]
-}

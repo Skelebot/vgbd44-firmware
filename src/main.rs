@@ -1,20 +1,16 @@
+#![feature(never_type)]
 #![no_main]
 #![no_std]
 
 mod layout;
 
+use stm32f0xx_hal as hal;
+use hal::{gpio::{self, Input, Output, PullUp, PushPull}, prelude::*};
+
 use panic_halt as _;
 use rtic::app;
 
-use hal::{gpio::{self, Input, Output, PullUp, PushPull}, prelude::*};
-use stm32f0xx_hal as hal;
-
-use keyberon::{
-    debounce::Debouncer,
-    key_code::KbHidReport,
-    layout::{Event, Layout},
-    matrix::{Matrix, PressedKeys},
-};
+use keyberon::{debounce::Debouncer, key_code::KbHidReport, layout::{Event, Layout}, matrix::{Matrix, PressedKeys}};
 use usb_device::{
     class_prelude::UsbBusAllocator,
     device::{UsbDevice, UsbDeviceState},
@@ -26,7 +22,8 @@ const APP: () = {
         usb_dev: UsbDevice<'static, hal::usb::UsbBusType>,
         usb_class: keyberon::Class<'static, hal::usb::UsbBusType, ()>,
         matrix: Matrix<gpio::Pin<Input<PullUp>>, gpio::Pin<Output<PushPull>>, 6, 4>,
-        layout: Layout,
+        //matrix: DebouncedMatrix<gpio::Pin<Input<PullUp>>, gpio::Pin<Output<PushPull>>, 6, 4, 5>,
+        layout: Layout<!, 12, 4, 5>,
         debouncer: Debouncer<PressedKeys<6, 4>>,
         transform: fn(Event) -> Event,
         boot_btn: (
@@ -80,8 +77,8 @@ const APP: () = {
         let mut timer = hal::timers::Timer::tim3(c.device.TIM3, 1.khz(), &mut rcc);
         timer.listen(hal::timers::Event::TimeOut);
 
+        let is_left = &gpioa.pa8.is_low().unwrap();
         let transform: fn(Event) -> Event = {
-            let is_left = &gpioa.pa8.is_low().unwrap();
             if *is_left {
                 |e| e
             } else {
@@ -91,9 +88,8 @@ const APP: () = {
 
         let (tx, rx) = {
             // Set up TX (PA9), RX (PA10)
-            let (pa9, pa10) = (gpioa.pa9, gpioa.pa10);
             let pins = cortex_m::interrupt::free(|cs| {
-                (pa9.into_alternate_af1(cs), pa10.into_alternate_af1(cs))
+                (gpioa.pa9.into_alternate_af1(cs), gpioa.pa10.into_alternate_af1(cs))
             });
 
             let mut serial =
@@ -102,25 +98,22 @@ const APP: () = {
             serial.split()
         };
 
-        let (pa0, pa1, pa2, pa3, pa4, pa5, pb4, pb5, pb6, pb7) = (
-            gpioa.pa0, gpioa.pa1, gpioa.pa2, gpioa.pa3, gpioa.pa4, gpioa.pa5, gpiob.pb4, gpiob.pb5,
-            gpiob.pb6, gpiob.pb7,
-        );
         let matrix = cortex_m::interrupt::free(move |cs| {
+            //DebouncedMatrix::new(
             Matrix::new(
                 [
-                    pa0.into_pull_up_input(cs).downgrade(),
-                    pa1.into_pull_up_input(cs).downgrade(),
-                    pa2.into_pull_up_input(cs).downgrade(),
-                    pa3.into_pull_up_input(cs).downgrade(),
-                    pa4.into_pull_up_input(cs).downgrade(),
-                    pa5.into_pull_up_input(cs).downgrade(),
+                    gpioa.pa0.into_pull_up_input(cs).downgrade(),
+                    gpioa.pa1.into_pull_up_input(cs).downgrade(),
+                    gpioa.pa2.into_pull_up_input(cs).downgrade(),
+                    gpioa.pa3.into_pull_up_input(cs).downgrade(),
+                    gpioa.pa4.into_pull_up_input(cs).downgrade(),
+                    gpioa.pa5.into_pull_up_input(cs).downgrade(),
                 ],
                 [
-                    pb4.into_push_pull_output(cs).downgrade(),
-                    pb5.into_push_pull_output(cs).downgrade(),
-                    pb6.into_push_pull_output(cs).downgrade(),
-                    pb7.into_push_pull_output(cs).downgrade(),
+                    gpiob.pb4.into_push_pull_output(cs).downgrade(),
+                    gpiob.pb5.into_push_pull_output(cs).downgrade(),
+                    gpiob.pb6.into_push_pull_output(cs).downgrade(),
+                    gpiob.pb7.into_push_pull_output(cs).downgrade(),
                 ],
             )
         })
@@ -131,7 +124,7 @@ const APP: () = {
             usb_class,
             debouncer: Debouncer::new(Default::default(), Default::default(), 5),
             matrix,
-            layout: Layout::new(layout::qwerty::LAYERS),
+            layout: Layout::new(&layout::qwerty::LAYERS),
             boot_btn: (gpiob.pb8, false),
             transform,
             timer,
@@ -169,6 +162,7 @@ const APP: () = {
     }
 
     #[task(binds = TIM3, priority = 3, resources = [matrix, debouncer, timer, &transform, tx, is_main_half, layout, usb_class, boot_btn])]
+    //#[task(binds = TIM3, priority = 3, resources = [matrix, timer, &transform, tx, is_main_half, layout, usb_class, boot_btn])]
     fn tick(mut c: tick::Context) {
         // Clear the interrupt flag
         c.resources.timer.wait().ok();
@@ -176,20 +170,15 @@ const APP: () = {
         c.resources.layout.lock(|l| l.tick());
         let is_main: bool = c.resources.is_main_half.lock(|c| *c);
         
-        for event in c
-            .resources
-            .debouncer
-            .events(c.resources.matrix.get().unwrap())
-            .map(c.resources.transform)
-        {
-            // Send events to the main half through USART
-            //if !is_main {
-            for &b in &ser(event) {
-                nb::block!(c.resources.tx.write(b)).unwrap();
+        //if let Some(events) = c.resources.matrix.scan().unwrap() {
+        let events = c.resources.debouncer.events(c.resources.matrix.get().unwrap()).map(c.resources.transform); //{
+            for event in events {
+                for &b in &ser(event) {
+                    nb::block!(c.resources.tx.write(b)).unwrap();
+                }
+                c.resources.layout.lock(|c| c.event(event));
             }
-            //}
-            c.resources.layout.lock(|c| c.event(event));
-        }
+        //}
 
         // Handle the BOOT button
         {
@@ -224,7 +213,6 @@ const APP: () = {
 };
 
 // If the most significant bit of i is set, it's a press event
-
 fn ser(e: Event) -> [u8; 3] {
     match e {
         Event::Press(i, j) => [i | 0x80, j, 0xff],

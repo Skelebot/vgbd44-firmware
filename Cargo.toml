@@ -2,22 +2,22 @@
 name = "firmware"
 version = "0.1.0"
 authors = ["Antoni Simka <antonisimka.8@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 panic-halt = "0.2.0"
 stm32f0xx-hal = { version = "0.17.1", features = ["stm32f042", "rt", "stm32-usbd"] }
-cortex-m = "0.7.2"
-cortex-m-rt = { version = "0.6.14", features = ["device"] }
-cortex-m-rtic = "0.5.6"
+cortex-m = "0.7.3"
+cortex-m-rt = { version = "0.7.0", features = ["device"] }
+cortex-m-rtic = "0.5.9"
 usb-device = "0.2.8"
-#generic-array = "0.14.4"
-embedded-hal = "0.2.5"
+embedded-hal = "0.2.6"
 nb = "1.0.0"
 
-keyberon = { path = "./keyberon" }
-#ws2812-timer-delay = { version = "0.3.0", features = ["slow"] }
-#smart-leds = "0.3.0"
+
+[dependencies.keyberon]
+git = "https://github.com/Skelebot/keyberon.git" 
+branch = "const-layouts-pr"
 
 [profile.dev]
 opt-level = "z"
@@ -31,5 +31,5 @@ incremental = false
 debug = false
 
 [features]
-leds = []
 dvorak = []
+leds = []

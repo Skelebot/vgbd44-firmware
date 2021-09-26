@@ -1,37 +1,35 @@
-use keyberon::action::{Action, HoldTapConfig};
-use keyberon::key_code::KeyCode::*;
+use super::*;
 
-static S_ENTER: Action = Action::HoldTap {
-    timeout: 280,
-    hold: &Action::KeyCode(RShift),
-    tap: &Action::KeyCode(Enter),
-    config: HoldTapConfig::PermissiveHold,
-    tap_hold_interval: 0,
-};
+// Switch i3 workspace
+macro_rules! w {
+    ( $n:ident ) => {
+        Action::MultipleKeyCodes(&[KeyCode::LGui, KeyCode::$n])
+    };
+}
 
-pub static LAYERS: &[&[&[Action]]] = keyberon::layout::layout! {
+pub const LAYERS: keyberon::layout::Layers<!, 12, 4, 5> = keyberon::layout::layout! {
     {
         [ Tab    Q W E R T   Y U I O P BSpace ]
         [ LCtrl  A S D F G   H J K L ; Quote  ]
         [ LShift Z X C V B   N M , . / Escape ]
-        [ {Action::DefaultLayer(3)} n LGui (1) Space Escape   BSpace {S_ENTER} (2) RAlt n {Action::DefaultLayer(3)} ]
+        [ {Action::DefaultLayer(4)} n LGui (1) Space Escape   BSpace {S_ENTER} (2) RAlt n {Action::DefaultLayer(4)} ]
     }
     {
-        [ Tab    1 2 3 4 5   6 7 8 9 0 BSpace ]
-        [ LCtrl  n n n n n   Left Down Up Right n [LCtrl '`'] ]
-        [ LShift n n n n n   n n n n n n ]
+        [ t 1 2 3 4 5   6 7 8 9 0 BSpace ]
+        [ t {w!(Kb1), w!(Kb2), w!(Kb3), w!(Kb4), w!(Kb5)}  Left Down Up Right n [LCtrl '`'] ]
+        [ t n Delete n n n   MediaPreviousSong MediaVolDown MediaVolUp MediaNextSong MediaPlayPause n ]
         [ n n t (2) t t   t t t t n n ]
     }
     {
-        [ Tab    ! @ # $ %   ^ & * '(' ')' t ]
-        [ LCtrl  n n n n n   - = '{' '}' '\\' '`' ]
-        [ LShift n n n n n   '_' + '[' ']' | ~    ]
+        [ t ! @ # $ %   ^ & * '(' ')' t ]
+        [ t n n n n n   - = '{' '}' '\\' '`' ]
+        [ t n n n n n   '_' + '[' ']' | ~    ]
         [ n n t t t t   t t (1) t n n ]
     }
     {
         [ F12 F1 F2 F3 F4 F5   F6 F7 F8 F9 F10 F11 ]
-        [ LCtrl  n n n n n   n n n n n n ]
-        [ LShift n n n n n   n n n n n n ]
+        [ t n n n n n   n n n n n n ]
+        [ t n n n n n   n n n n n n ]
         [ n n t n t t   t t n t n n ]
     }
     // Gamer mode
