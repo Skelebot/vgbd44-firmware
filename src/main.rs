@@ -4,13 +4,22 @@
 
 mod layout;
 
+use hal::{
+    gpio::{self, Input, Output, PullUp, PushPull},
+    prelude::*,
+};
 use stm32f0xx_hal as hal;
-use hal::{gpio::{self, Input, Output, PullUp, PushPull}, prelude::*};
 
 use panic_halt as _;
 use rtic::app;
 
-use keyberon::{debounce::Debouncer, key_code::KbHidReport, layout::{Event, Layout}, matrix::{Matrix, PressedKeys}};
+use keyberon::{
+    debounce::Debouncer,
+    debounced_matrix::DebouncedMatrix,
+    key_code::KbHidReport,
+    layout::{Event, Layout},
+    matrix::PressedKeys,
+};
 use usb_device::{
     class_prelude::UsbBusAllocator,
     device::{UsbDevice, UsbDeviceState},
@@ -21,8 +30,7 @@ const APP: () = {
     struct Resources {
         usb_dev: UsbDevice<'static, hal::usb::UsbBusType>,
         usb_class: keyberon::Class<'static, hal::usb::UsbBusType, ()>,
-        matrix: Matrix<gpio::Pin<Input<PullUp>>, gpio::Pin<Output<PushPull>>, 6, 4>,
-        //matrix: DebouncedMatrix<gpio::Pin<Input<PullUp>>, gpio::Pin<Output<PushPull>>, 6, 4, 5>,
+        matrix: DebouncedMatrix<gpio::Pin<Input<PullUp>>, gpio::Pin<Output<PushPull>>, 6, 4, 5>,
         layout: Layout<!, 12, 4, 5>,
         debouncer: Debouncer<PressedKeys<6, 4>>,
         transform: fn(Event) -> Event,
@@ -69,7 +77,7 @@ const APP: () = {
             usb_device::device::UsbVidPid(0x16c0, 0xcafe),
         )
         .manufacturer("HoldIT")
-        .product("Bulbulator")
+        .product("vgbd44 keyboard")
         .serial_number("Yes")
         .device_release(0x0010)
         .build();
@@ -89,7 +97,10 @@ const APP: () = {
         let (tx, rx) = {
             // Set up TX (PA9), RX (PA10)
             let pins = cortex_m::interrupt::free(|cs| {
-                (gpioa.pa9.into_alternate_af1(cs), gpioa.pa10.into_alternate_af1(cs))
+                (
+                    gpioa.pa9.into_alternate_af1(cs),
+                    gpioa.pa10.into_alternate_af1(cs),
+                )
             });
 
             let mut serial =
@@ -99,8 +110,7 @@ const APP: () = {
         };
 
         let matrix = cortex_m::interrupt::free(move |cs| {
-            //DebouncedMatrix::new(
-            Matrix::new(
+            DebouncedMatrix::new(
                 [
                     gpioa.pa0.into_pull_up_input(cs).downgrade(),
                     gpioa.pa1.into_pull_up_input(cs).downgrade(),
@@ -124,7 +134,7 @@ const APP: () = {
             usb_class,
             debouncer: Debouncer::new(Default::default(), Default::default(), 5),
             matrix,
-            layout: Layout::new(&layout::qwerty::LAYERS),
+            layout: Layout::new(&layout::LAYERS),
             boot_btn: (gpiob.pb8, false),
             transform,
             timer,
@@ -161,24 +171,23 @@ const APP: () = {
         }
     }
 
-    #[task(binds = TIM3, priority = 3, resources = [matrix, debouncer, timer, &transform, tx, is_main_half, layout, usb_class, boot_btn])]
-    //#[task(binds = TIM3, priority = 3, resources = [matrix, timer, &transform, tx, is_main_half, layout, usb_class, boot_btn])]
+    #[task(binds = TIM3, priority = 3, resources = [matrix, timer, &transform, tx, is_main_half, layout, usb_class, boot_btn])]
     fn tick(mut c: tick::Context) {
         // Clear the interrupt flag
         c.resources.timer.wait().ok();
 
         c.resources.layout.lock(|l| l.tick());
         let is_main: bool = c.resources.is_main_half.lock(|c| *c);
-        
+
         //if let Some(events) = c.resources.matrix.scan().unwrap() {
-        let events = c.resources.debouncer.events(c.resources.matrix.get().unwrap()).map(c.resources.transform); //{
-            for event in events {
+        if let Some(events) = c.resources.matrix.scan().unwrap() {
+            for event in events.map(c.resources.transform) {
                 for &b in &ser(event) {
                     nb::block!(c.resources.tx.write(b)).unwrap();
                 }
                 c.resources.layout.lock(|c| c.event(event));
             }
-        //}
+        }
 
         // Handle the BOOT button
         {
@@ -205,10 +214,6 @@ const APP: () = {
                 while let Ok(0) = c.resources.usb_class.lock(|c| c.write(report.as_bytes())) {}
             }
         }
-    }
-
-    extern "C" {
-        fn CEC_CAN();
     }
 };
 

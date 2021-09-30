@@ -8,16 +8,15 @@ edition = "2021"
 panic-halt = "0.2.0"
 stm32f0xx-hal = { version = "0.17.1", features = ["stm32f042", "rt", "stm32-usbd"] }
 cortex-m = "0.7.3"
-cortex-m-rt = { version = "0.7.0", features = ["device"] }
+cortex-m-rt = { version = "0.6", features = ["device"] }
 cortex-m-rtic = "0.5.9"
 usb-device = "0.2.8"
 embedded-hal = "0.2.6"
 nb = "1.0.0"
 
-
 [dependencies.keyberon]
 git = "https://github.com/Skelebot/keyberon.git" 
-branch = "const-layouts-pr"
+branch = "master"
 
 [profile.dev]
 opt-level = "z"
@@ -29,7 +28,3 @@ lto = true
 codegen-units = 1
 incremental = false
 debug = false
-
-[features]
-dvorak = []
-leds = []
