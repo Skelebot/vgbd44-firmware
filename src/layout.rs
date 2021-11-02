@@ -28,13 +28,14 @@ macro_rules! l {
 // Number of layers in the layout; modify accordingly
 pub const NUM_LAYERS: usize = 5;
 
+/// See the `layout!` macro documentation for details
+/// The bottom-left and bottom-right keys are bound to left and right boot buttons respectively
 pub const LAYERS: keyberon::layout::Layers<!, 12, 4, NUM_LAYERS> = keyberon::layout::layout! {
     {
         [ Tab    Q W E R T   Y U I O P BSpace ]
         [ LCtrl  A S D F G   H J K L ; Quote  ]
         [ LShift Z X C V B   N M , . / Escape ]
-        //[ {l!(4)} n LGui (1) Space Escape   BSpace {S_ENTER} (2) RAlt n {l!(4)} ]
-        [ N n LGui (1) Space Escape   BSpace {S_ENTER} (2) RAlt n G ]
+        [ {l!(4)} n LGui (1) Space Escape   BSpace {S_ENTER} (2) RAlt n {l!(4)} ]
     }
     {
         [ t 1 2 3 4 5   6 7 8 9 0 t ]

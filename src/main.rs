@@ -2,8 +2,8 @@
 #![no_main]
 #![no_std]
 
-mod layout;
 mod boot;
+mod layout;
 use boot::BootButton;
 
 use hal::{
@@ -16,11 +16,9 @@ use panic_halt as _;
 use rtic::app;
 
 use keyberon::{
-    debounce::Debouncer,
     debounced_matrix::DebouncedMatrix,
     key_code::KbHidReport,
     layout::{Event, Layout},
-    matrix::PressedKeys,
 };
 use usb_device::{
     class_prelude::UsbBusAllocator,
@@ -32,10 +30,16 @@ const APP: () = {
     struct Resources {
         usb_dev: UsbDevice<'static, hal::usb::UsbBusType>,
         usb_class: keyberon::Class<'static, hal::usb::UsbBusType, ()>,
-        matrix: DebouncedMatrix<gpio::Pin<Input<PullUp>>, gpio::Pin<Output<PushPull>>, BootButton, 6, 4, 5>,
+        matrix: DebouncedMatrix<
+            gpio::Pin<Input<PullUp>>,
+            gpio::Pin<Output<PushPull>>,
+            BootButton,
+            6,
+            4,
+            5,
+        >,
         layout: Layout<!, 12, 4, { layout::NUM_LAYERS }>,
-        debouncer: Debouncer<PressedKeys<6, 4>>,
-        transform: fn(Event) -> Event,
+        is_right_half: bool,
         timer: hal::timers::Timer<hal::pac::TIM3>,
         tx: hal::serial::Tx<hal::pac::USART1>,
         rx: hal::serial::Rx<hal::pac::USART1>,
@@ -83,17 +87,9 @@ const APP: () = {
         let mut timer = hal::timers::Timer::tim3(c.device.TIM3, 1.khz(), &mut rcc);
         timer.listen(hal::timers::Event::TimeOut);
 
-        let is_left = &gpioa.pa8.is_low().unwrap();
-        let transform: fn(Event) -> Event = {
-            if *is_left {
-                |e| e
-            } else {
-                |e| e.transform(|i, j| (i, 11 - j))
-            }
-        };
+        let is_right_half = gpioa.pa8.is_high().unwrap();
 
         let (tx, rx) = {
-            // Set up TX (PA9), RX (PA10)
             let pins = cortex_m::interrupt::free(|cs| {
                 (
                     gpioa.pa9.into_alternate_af1(cs),
@@ -123,7 +119,7 @@ const APP: () = {
                     gpiob.pb6.into_push_pull_output(cs).downgrade(),
                     gpiob.pb7.into_push_pull_output(cs).downgrade(),
                 ],
-                BootButton(gpiob.pb8.into_pull_down_input(cs))
+                BootButton(gpiob.pb8.into_pull_down_input(cs)),
             )
         })
         .unwrap();
@@ -131,11 +127,9 @@ const APP: () = {
         init::LateResources {
             usb_dev,
             usb_class,
-            debouncer: Debouncer::new(Default::default(), Default::default(), 5),
             matrix,
             layout: Layout::new(&layout::LAYERS),
-            //boot_btn: (gpiob.pb8, false),
-            transform,
+            is_right_half,
             timer,
             tx,
             rx,
@@ -152,7 +146,7 @@ const APP: () = {
             BUF[2] = b;
 
             if b == 0xff {
-                c.resources.layout.event(de(&BUF[..]));
+                c.resources.layout.event(de(BUF));
             }
         }
     }
@@ -168,7 +162,7 @@ const APP: () = {
         }
     }
 
-    #[task(binds = TIM3, priority = 3, resources = [matrix, timer, &transform, tx, is_main_half, layout, usb_class])]
+    #[task(binds = TIM3, priority = 3, resources = [matrix, timer, is_right_half, tx, is_main_half, layout, usb_class])]
     fn tick(mut c: tick::Context) {
         // Clear the interrupt flag
         c.resources.timer.wait().ok();
@@ -177,9 +171,14 @@ const APP: () = {
         let is_main: bool = c.resources.is_main_half.lock(|c| *c);
 
         if let Some(events) = c.resources.matrix.scan().unwrap() {
-            for event in events.map(c.resources.transform) {
-                for &b in &ser(event) {
-                    nb::block!(c.resources.tx.write(b)).unwrap();
+            for mut event in events {
+                if *c.resources.is_right_half {
+                    event = event.transform(|r, c| (r, 11 - c))
+                }
+                if !is_main {
+                    for &b in &ser(event) {
+                        nb::block!(c.resources.tx.write(b)).unwrap();
+                    }
                 }
                 c.resources.layout.lock(|c| c.event(event));
             }
@@ -206,7 +205,7 @@ fn ser(e: Event) -> [u8; 3] {
     }
 }
 
-fn de(bytes: &[u8]) -> Event {
+fn de(bytes: &[u8; 3]) -> Event {
     if (bytes[0] & 0x80) != 0 {
         Event::Press(bytes[0] & 0x7f, bytes[1])
     } else {
