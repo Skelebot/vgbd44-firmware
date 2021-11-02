@@ -3,6 +3,8 @@
 #![no_std]
 
 mod layout;
+mod boot;
+use boot::BootButton;
 
 use hal::{
     gpio::{self, Input, Output, PullUp, PushPull},
@@ -30,14 +32,10 @@ const APP: () = {
     struct Resources {
         usb_dev: UsbDevice<'static, hal::usb::UsbBusType>,
         usb_class: keyberon::Class<'static, hal::usb::UsbBusType, ()>,
-        matrix: DebouncedMatrix<gpio::Pin<Input<PullUp>>, gpio::Pin<Output<PushPull>>, 6, 4, 5>,
-        layout: Layout<!, 12, 4, 5>,
+        matrix: DebouncedMatrix<gpio::Pin<Input<PullUp>>, gpio::Pin<Output<PushPull>>, BootButton, 6, 4, 5>,
+        layout: Layout<!, 12, 4, { layout::NUM_LAYERS }>,
         debouncer: Debouncer<PressedKeys<6, 4>>,
         transform: fn(Event) -> Event,
-        boot_btn: (
-            hal::gpio::gpiob::PB8<hal::gpio::Input<hal::gpio::Floating>>,
-            bool,
-        ),
         timer: hal::timers::Timer<hal::pac::TIM3>,
         tx: hal::serial::Tx<hal::pac::USART1>,
         rx: hal::serial::Rx<hal::pac::USART1>,
@@ -125,6 +123,7 @@ const APP: () = {
                     gpiob.pb6.into_push_pull_output(cs).downgrade(),
                     gpiob.pb7.into_push_pull_output(cs).downgrade(),
                 ],
+                BootButton(gpiob.pb8.into_pull_down_input(cs))
             )
         })
         .unwrap();
@@ -135,7 +134,7 @@ const APP: () = {
             debouncer: Debouncer::new(Default::default(), Default::default(), 5),
             matrix,
             layout: Layout::new(&layout::LAYERS),
-            boot_btn: (gpiob.pb8, false),
+            //boot_btn: (gpiob.pb8, false),
             transform,
             timer,
             tx,
@@ -153,9 +152,7 @@ const APP: () = {
             BUF[2] = b;
 
             if b == 0xff {
-                if let Ok(event) = de(&BUF[..]) {
-                    c.resources.layout.event(event);
-                }
+                c.resources.layout.event(de(&BUF[..]));
             }
         }
     }
@@ -171,7 +168,7 @@ const APP: () = {
         }
     }
 
-    #[task(binds = TIM3, priority = 3, resources = [matrix, timer, &transform, tx, is_main_half, layout, usb_class, boot_btn])]
+    #[task(binds = TIM3, priority = 3, resources = [matrix, timer, &transform, tx, is_main_half, layout, usb_class])]
     fn tick(mut c: tick::Context) {
         // Clear the interrupt flag
         c.resources.timer.wait().ok();
@@ -179,28 +176,12 @@ const APP: () = {
         c.resources.layout.lock(|l| l.tick());
         let is_main: bool = c.resources.is_main_half.lock(|c| *c);
 
-        //if let Some(events) = c.resources.matrix.scan().unwrap() {
         if let Some(events) = c.resources.matrix.scan().unwrap() {
             for event in events.map(c.resources.transform) {
                 for &b in &ser(event) {
                     nb::block!(c.resources.tx.write(b)).unwrap();
                 }
                 c.resources.layout.lock(|c| c.event(event));
-            }
-        }
-
-        // Handle the BOOT button
-        {
-            let now = c.resources.boot_btn.0.is_high().unwrap();
-            let prev = c.resources.boot_btn.1;
-            let event: Option<Event> = match (now, prev) {
-                (true, false) => Some((c.resources.transform)(Event::Press(3, 0))),
-                (false, true) => Some((c.resources.transform)(Event::Release(3, 0))),
-                _ => None,
-            };
-            if let Some(e) = event {
-                c.resources.layout.lock(|l| l.event(e));
-                c.resources.boot_btn.1 = now;
             }
         }
 
@@ -225,15 +206,10 @@ fn ser(e: Event) -> [u8; 3] {
     }
 }
 
-fn de(bytes: &[u8]) -> Result<Event, ()> {
-    match *bytes {
-        [i, j, 0xff] => {
-            if (i & 0x80) != 0 {
-                Ok(Event::Press(i & 0x7f, j))
-            } else {
-                Ok(Event::Release(i & 0x7f, j))
-            }
-        }
-        _ => Err(()),
+fn de(bytes: &[u8]) -> Event {
+    if (bytes[0] & 0x80) != 0 {
+        Event::Press(bytes[0] & 0x7f, bytes[1])
+    } else {
+        Event::Release(bytes[0] & 0x7f, bytes[1])
     }
 }

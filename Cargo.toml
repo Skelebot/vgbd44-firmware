@@ -15,8 +15,9 @@ embedded-hal = "0.2.6"
 nb = "1.0.0"
 
 [dependencies.keyberon]
-git = "https://github.com/Skelebot/keyberon.git" 
-branch = "master"
+#git = "https://github.com/Skelebot/keyberon.git" 
+#branch = "master"
+path = "../keyberon"
 
 [profile.dev]
 opt-level = "z"
